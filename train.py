@@ -287,7 +287,7 @@ WARMUP_STEPS = int(os.environ.get("WARMUP_STEPS", 50))
 # GIỮ NGUYÊN TRAIN_BATCH/NUM_GEN/GRAD_ACC như lần train epoch 1, nếu không số bước/epoch sẽ lệch.
 RESUME_REPO = os.environ.get("RESUME_REPO", "").strip()
 RESUME_STEP = os.environ.get("RESUME_STEP", "").strip()
-HUB_MODEL_ID = os.environ.get("HUB_MODEL_ID", "KhanhChien/qwen3.5-vehicle-lora-ep2")
+HUB_MODEL_ID = os.environ.get("HUB_MODEL_ID", "KhanhChien/qwen3.5-vehicle-lora-epoch2")
 resume_path = None
 if RESUME_REPO:
     from huggingface_hub import HfApi, snapshot_download

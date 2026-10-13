@@ -24,7 +24,7 @@ export RESUME_STEP="${RESUME_STEP-1735}"
 export EPOCHS="${EPOCHS:-2}"
 # Push checkpoint mới lên repo KHÁC để không ghi đè last-checkpoint (step 1735) của epoch 1.
 # Muốn push chung repo cũ: HUB_MODEL_ID=KhanhChien/qwen3.5-vehicle-lora
-export HUB_MODEL_ID="${HUB_MODEL_ID:-KhanhChien/qwen3.5-vehicle-lora-ep2}"
+export HUB_MODEL_ID="${HUB_MODEL_ID:-KhanhChien/qwen3.5-vehicle-lora-epoch2}"
 DATA_DIR=~/kaggle_data            # nơi chứa dữ liệu sau khi tải + giải nén
 SOURCE_DIR=~/source_code
 ENV_NAME="qwen_env"

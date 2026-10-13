@@ -4,7 +4,7 @@
 # mới nếu không tìm thấy conda nào. Không cần sudo/apt-get.
 set -e
 
-REPO_URL="https://github.com/khanhchien23/Finetune-Qwen3.5_Kaggle.git"
+REPO_URL="https://github.com/khanhchien23/Finetune-Qwen3.5_Kaggle_epoch2.git"   # repo mới cho epoch 2
 SOURCE_DIR=~/source_code
 ENV_NAME="qwen_env"
 PY_VERSION="3.10"
@@ -61,6 +61,8 @@ conda config --set channel_priority strict
 # ---------------------------------------------------------------------
 if [ -d "$SOURCE_DIR/.git" ]; then
     echo ">> Đã có repo, pull bản mới nhất..."
+    # Nếu thư mục này còn trỏ tới repo cũ (epoch 1) thì đổi sang repo epoch 2
+    git -C "$SOURCE_DIR" remote set-url origin "$REPO_URL"
     git -C "$SOURCE_DIR" pull
 else
     echo ">> Clone repo lần đầu..."

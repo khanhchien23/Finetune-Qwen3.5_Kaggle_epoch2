@@ -29,6 +29,10 @@ DATA_DIR=~/kaggle_data            # nơi chứa dữ liệu sau khi tải + gi�
 SOURCE_DIR=~/source_code
 ENV_NAME="qwen_env"
 RUN_DIR=~/train_run               # train.py ghi outputs/ và qwen_lora/ vào đây
+# Trên Modal, ~/kaggle_data và ~/train_run là SYMLINK tới volume (/__modal/volumes/...). `find DIR` không đi
+# xuyên qua symlink nên đếm được 0 file dù đã tải xong -> đổi sang đường dẫn thật. Máy thường: không đổi gì.
+DATA_DIR="$(readlink -f "$DATA_DIR")"
+RUN_DIR="$(readlink -f "$RUN_DIR")"
 
 # ---------------------------------------------------------------------
 # 1) Pull code + cài thư viện (script con tự dò/cài conda, tạo + activate env)

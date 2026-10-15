@@ -17,8 +17,11 @@
 # In[1]:
 
 
-import os, glob, json, time
+import os, glob, json, time, sys, faulthandler
 _T0 = time.time()
+# WATCHDOG: nếu còn đang ở khâu chuẩn bị (chưa vào trainer.train) quá WATCHDOG_SEC giây, cứ chu kỳ đó
+# sẽ in ngăn xếp của mọi luồng ra log -> biết chính xác dòng code nào đang kẹt. Tự tắt khi bắt đầu train.
+faulthandler.dump_traceback_later(int(os.environ.get("WATCHDOG_SEC", 300)), repeat=True, file=sys.stderr)
 def _tick(msg):
     print(f"[timing] {msg}: {time.time() - _T0:.0f}s tổng kể từ lúc bắt đầu", flush=True)
 
@@ -129,31 +132,41 @@ eval_dataset  = Dataset.from_list(eval_records).cast_column("image", HFImage())
 # In[7]:
 
 
-# ===== TỐI ƯU HÓA: batched + multiprocessing =====
-NUM_PROC = int(os.environ.get("DS_NUM_PROC", min(os.cpu_count() or 1, 8)))
-print("map resize với num_proc =", NUM_PROC)
+# ===== Resize 512x512 bằng LUỒNG (thread), KHÔNG dùng datasets.map(num_proc): bản multiprocessing bị treo
+# giữa chừng trong container (worker kẹt ở queue.put). Ảnh đã resize lưu PNG vào /tmp (đĩa container). =====
+import hashlib, tempfile
+from concurrent.futures import ThreadPoolExecutor
+from PIL import Image as PILImage
 
-def resize_and_rgb_batched(examples):
-    """Xử lý theo lô: resize 512x512 + convert RGB cho nhiều ảnh cùng lúc."""
-    images = [img.resize((512, 512)) for img in examples["image"]]
-    images = [img.convert("RGB") if img.mode != "RGB" else img for img in images]
-    return {"image": images}
+NUM_THREADS = int(os.environ.get("DS_NUM_PROC", min((os.cpu_count() or 1) * 2, 16)))
+RESIZED_DIR = os.path.join(tempfile.gettempdir(), "resized_512")
+os.makedirs(RESIZED_DIR, exist_ok=True)
+print(f"resize bằng {NUM_THREADS} luồng -> {RESIZED_DIR}", flush=True)
 
-train_dataset = train_dataset.map(
-    resize_and_rgb_batched,
-    batched = True,
-    batch_size = 32,
-    num_proc = NUM_PROC,
-    desc = "Resize train images",
-)
-eval_dataset = eval_dataset.map(
-    resize_and_rgb_batched,
-    batched = True,
-    batch_size = 32,
-    num_proc = NUM_PROC,
-    desc = "Resize eval images",
-)
-_tick("xong bước resize ảnh (batched + multiprocessing)")
+def _resize_one(rec):
+    out = os.path.join(RESIZED_DIR, hashlib.md5(rec["image"].encode()).hexdigest() + ".png")
+    if not os.path.exists(out):
+        with PILImage.open(rec["image"]) as im:
+            im = im.resize((512, 512))                       # y như bản cũ
+            if im.mode != "RGB":
+                im = im.convert("RGB")
+            im.save(out + ".tmp", format="PNG")
+        os.replace(out + ".tmp", out)
+    return {"image": out, "answer": rec["answer"]}
+
+def resize_records(records, name):
+    t0, res = time.time(), []
+    with ThreadPoolExecutor(NUM_THREADS) as ex:
+        for i, r in enumerate(ex.map(_resize_one, records), 1):
+            res.append(r)
+            if i % 1000 == 0 or i == len(records):
+                el = time.time() - t0
+                print(f"[resize {name}] {i}/{len(records)} ({100*i//len(records)}%) | {i/el:.0f} ảnh/s | còn ~{(len(records)-i)/(i/el):.0f}s", flush=True)
+    return res
+
+train_dataset = Dataset.from_list(resize_records(train_records, "train")).cast_column("image", HFImage())
+eval_dataset  = Dataset.from_list(resize_records(eval_records, "eval")).cast_column("image", HFImage())
+_tick("xong bước resize ảnh (đa luồng)")
 
 # We then create the conversational template that is needed to collate the dataset for RL:
 
@@ -298,6 +311,7 @@ if RESUME_REPO:
                      f"Các trainer_state.json có trên repo: {sorted(f for f in _files if f.endswith('trainer_state.json'))}")
     print(f">> Tải checkpoint '{_prefix}' từ {RESUME_REPO} ...", flush=True)
     snapshot_download(RESUME_REPO, allow_patterns=[f"{_prefix}/*"], local_dir="resume_ckpt")
+    _tick("đã tải xong checkpoint resume")
     resume_path = os.path.abspath(f"resume_ckpt/{_prefix}")
     _st = json.load(open(f"{resume_path}/trainer_state.json"))
     print(f">> Checkpoint: global_step={_st['global_step']} | epoch={_st['epoch']} | files: {sorted(os.listdir(resume_path))}")
@@ -364,6 +378,7 @@ training_args = GRPOConfig(
 # In[12]:
 
 
+_tick("bắt đầu tạo GRPOTrainer (có thể mất vài phút: nạp reward, wandb, đẩy repo HF...)")
 trainer = GRPOTrainer(
     model = model,
     args = training_args,
@@ -375,6 +390,9 @@ trainer = GRPOTrainer(
     train_dataset = train_dataset,
 )
 
+_tick("GRPOTrainer sẵn sàng")
+faulthandler.cancel_dump_traceback_later()   # hết khâu chuẩn bị: tắt watchdog
+print(f">> BẮT ĐẦU trainer.train() | resume_from_checkpoint={resume_path}", flush=True)
 trainer.train(resume_from_checkpoint = resume_path)   # None = train từ đầu
 
 # <a name="Save"></a>
